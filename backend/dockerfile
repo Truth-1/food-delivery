@@ -1,8 +1,39 @@
-FROM node:20-alpine
+# --- Stage 1: Build Stage ---
+FROM node:20-alpine AS builder
+
 WORKDIR /app
+
+# Install dependencies first (leveraging Docker layer caching)
 COPY package*.json ./
 RUN npm install
+
+# Copy source code and build/prepare
 COPY . .
-# You will need to change this port to match each specific app (e.g., 4000, 3000, 5173)
+
+# --- Stage 2: Production Runtime Stage ---
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+# Create a dedicated non-root user and group for container hardening
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Copy only production node_modules and source files from the builder stage
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/server.js ./
+COPY --from=builder /app/models ./models
+COPY --from=builder /app/controllers ./controllers
+COPY --from=builder /app/routes ./routes
+COPY --from=builder /app/config ./config
+COPY --from=builder /app/middleware ./middleware
+
+# Change ownership of the app directory to the non-root user
+RUN chown -R appuser:appgroup /app
+
+# Switch to the non-root user
+USER appuser
+
 EXPOSE 4000
-CMD ["npm", "start"]
+
+CMD ["node", "server.js"]
